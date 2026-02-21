@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Game Task Widget</title>
+  </head>
+  <body style="background:transparent;color:rgba(255,255,255,0.9);margin:0;min-height:100vh;font-family:sans-serif;">
+    <div id="loading" style="padding:1rem;text-align:center;">Loading...</div>
+    <div id="error-box" style="display:none;padding:1rem;max-width:100%;background:rgba(20,0,30,0.95);border:1px solid #a855f7;border-radius:8px;margin:1rem;font-size:0.9rem;">
+      <div style="margin-bottom:0.5rem;"><strong>Ошибка загрузки</strong></div>
+      <pre id="error-msg" style="white-space:pre-wrap;word-break:break-all;margin:0 0 0.5rem 0;"></pre>
+      <pre id="error-stack" style="white-space:pre-wrap;word-break:break-all;margin:0 0 0.5rem 0;font-size:0.8rem;color:rgba(255,255,255,0.7);"></pre>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <button type="button" id="error-copy" style="padding:0.4rem 0.8rem;background:#a855f7;color:#fff;border:none;border-radius:6px;cursor:pointer;">Скопировать отладку</button>
+        <button type="button" id="error-close" style="padding:0.4rem 0.8rem;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:6px;cursor:pointer;">Скрыть</button>
+      </div>
+    </div>
+    <div id="debug-bar" style="position:fixed;bottom:0;left:0;right:0;padding:0.25rem 0.5rem;background:rgba(10,10,15,0.9);border-top:1px solid rgba(168,85,247,0.3);font-size:0.75rem;display:none;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+      <button type="button" id="debug-copy" style="padding:0.25rem 0.5rem;background:rgba(168,85,247,0.3);color:#fff;border:none;border-radius:4px;cursor:pointer;">Скопировать отладку</button>
+      <span id="debug-hint" style="color:rgba(255,255,255,0.5);">Ctrl+Shift+D — показать/скрыть панель</span>
+    </div>
+    <div id="app" style="min-height:100vh;"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

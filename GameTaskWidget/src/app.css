@@ -1,0 +1,137 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&family=Exo+2:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg-primary: #0a0a0f;
+  --bg-secondary: rgba(255, 255, 255, 0.05);
+  --accent: #a855f7;
+  --accent-cyan: #22d3ee;
+  --text-primary: rgba(255, 255, 255, 0.9);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --border-color: rgba(168, 85, 247, 0.3);
+  --header-bg: rgba(168, 85, 247, 0.1);
+  --header-border: rgba(168, 85, 247, 0.2);
+  --group-bg: rgba(168, 85, 247, 0.08);
+  --group-border: rgba(168, 85, 247, 0.2);
+  --unlock-bg: rgba(168, 85, 247, 0.25);
+  --unlock-border: rgba(168, 85, 247, 0.4);
+  --scrollbar-track: rgba(255, 255, 255, 0.05);
+  --scrollbar-thumb: rgba(168, 85, 247, 0.3);
+  --scrollbar-thumb-hover: rgba(168, 85, 247, 0.5);
+}
+
+/* ─── Mono Theme ─── */
+[data-theme="mono"] {
+  --bg-primary: #0d0d0d;
+  --bg-secondary: rgba(255, 255, 255, 0.06);
+  --accent: rgba(255, 255, 255, 0.9);
+  --accent-cyan: #888;
+  --text-primary: rgba(255, 255, 255, 0.95);
+  --text-secondary: rgba(255, 255, 255, 0.55);
+  --border-color: rgba(255, 255, 255, 0.25);
+  --header-bg: rgba(255, 255, 255, 0.08);
+  --header-border: rgba(255, 255, 255, 0.18);
+  --group-bg: rgba(255, 255, 255, 0.06);
+  --group-border: rgba(255, 255, 255, 0.15);
+  --unlock-bg: rgba(255, 255, 255, 0.12);
+  --unlock-border: rgba(255, 255, 255, 0.25);
+  --scrollbar-track: rgba(255, 255, 255, 0.06);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.35);
+}
+
+/* ─── Cyberpunk Theme ─── */
+[data-theme="cyber"] {
+  --bg-primary: #0a0a14;
+  --bg-secondary: rgba(0, 255, 255, 0.04);
+  --accent: #00f0ff;
+  --accent-cyan: #ff2e97;
+  --text-primary: rgba(220, 240, 255, 0.95);
+  --text-secondary: rgba(150, 200, 220, 0.65);
+  --border-color: rgba(0, 240, 255, 0.3);
+  --header-bg: rgba(0, 240, 255, 0.08);
+  --header-border: rgba(0, 240, 255, 0.2);
+  --group-bg: rgba(0, 240, 255, 0.06);
+  --group-border: rgba(0, 240, 255, 0.18);
+  --unlock-bg: rgba(0, 240, 255, 0.2);
+  --unlock-border: rgba(0, 240, 255, 0.4);
+  --scrollbar-track: rgba(0, 240, 255, 0.05);
+  --scrollbar-thumb: rgba(0, 240, 255, 0.25);
+  --scrollbar-thumb-hover: rgba(0, 240, 255, 0.45);
+}
+
+/* ─── Matrix Theme ─── */
+[data-theme="matrix"] {
+  --bg-primary: #020a02;
+  --bg-secondary: rgba(0, 255, 65, 0.04);
+  --accent: #00ff41;
+  --accent-cyan: #00cc33;
+  --text-primary: rgba(0, 255, 65, 0.95);
+  --text-secondary: rgba(0, 200, 50, 0.55);
+  --border-color: rgba(0, 255, 65, 0.25);
+  --header-bg: rgba(0, 255, 65, 0.07);
+  --header-border: rgba(0, 255, 65, 0.18);
+  --group-bg: rgba(0, 255, 65, 0.05);
+  --group-border: rgba(0, 255, 65, 0.15);
+  --unlock-bg: rgba(0, 255, 65, 0.15);
+  --unlock-border: rgba(0, 255, 65, 0.35);
+  --scrollbar-track: rgba(0, 255, 65, 0.05);
+  --scrollbar-thumb: rgba(0, 255, 65, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 255, 65, 0.4);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Rajdhani', 'Orbitron', 'Exo 2', sans-serif;
+  background: transparent;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  width: 100%;
+  height: 100%;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

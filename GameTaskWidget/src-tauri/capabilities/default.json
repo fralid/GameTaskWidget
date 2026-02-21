@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-capability",
+  "description": "Main window: core, store, global-shortcut, window-state",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-start-dragging","core:window:allow-inner-size","core:window:allow-set-size","core:window:allow-close",
+    "store:default",
+    "global-shortcut:default",
+    "window-state:default","dialog:allow-open"
+  ]
+}
