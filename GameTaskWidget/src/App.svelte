@@ -3,18 +3,19 @@
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { PhysicalSize, LogicalSize } from "@tauri-apps/api/dpi";
+  import { PhysicalSize, PhysicalPosition, LogicalSize } from "@tauri-apps/api/dpi";
   import TaskInput from "./lib/TaskInput.svelte";
   import TaskList from "./lib/TaskList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import PomodoroTimer from "./lib/PomodoroTimer.svelte";
-  import { taskStore, type Task } from "./lib/store";
+  import TaskbarPanel from "./lib/TaskbarPanel.svelte";
+  import { taskStore, type Task, type ViewMode } from "./lib/store";
   import { pomodoroStore } from "./lib/pomodoroStore";
   import * as debug from "./lib/debug";
 
   let isLocked = $state(false);
   let settingsOpen = $state(false);
-  let isCompact = $state(false);
+  let viewMode = $state<ViewMode>('full');
   let savedSize = $state<{ width: number; height: number } | null>(null);
   let activeTaskId = $state<string | null>(null);
   let tasks = $state<Task[]>([]);
@@ -39,6 +40,7 @@
   onMount(() => {
     taskStore.init().catch(() => {});
     document.documentElement.dataset.theme = taskStore.getTheme();
+    viewMode = taskStore.getViewMode();
     const unsubStore = taskStore.subscribe(() => {
       document.documentElement.dataset.theme = taskStore.getTheme();
       activeTaskId = taskStore.getActiveTaskId();
@@ -46,6 +48,7 @@
       debugMode = taskStore.getDebugMode();
       pomodoroWork = taskStore.getPomodoroWorkMinutes();
       pomodoroBreak = taskStore.getPomodoroBreakMinutes();
+      viewMode = taskStore.getViewMode();
     });
     debugMode = taskStore.getDebugMode();
     pomodoroWork = taskStore.getPomodoroWorkMinutes();
@@ -96,44 +99,73 @@
     }
   }
 
-  async function toggleCompact() {
-    debug.log("[compact] toggleCompact called", { isCompact });
+  async function switchViewMode(target: ViewMode) {
+    debug.log("[viewMode] switchViewMode", { from: viewMode, to: target });
     try {
       const win = getCurrentWindow();
-      if (isCompact) {
-        debug.log("[compact] restoring full window");
-        await win.setMinSize(new LogicalSize(380, 400));
-        if (savedSize) {
-          await win.setSize(
-            new PhysicalSize(savedSize.width, savedSize.height),
-          );
-          savedSize = null;
-        }
-        isCompact = false;
-        debug.log("[compact] restored");
-      } else {
+      const dpr = window.devicePixelRatio || 1;
+
+      if (viewMode !== 'full' && viewMode !== 'taskbar') {
+        // nothing special to undo from compact beyond size restore
+      }
+
+      if (target === viewMode) return;
+
+      // Save current size if leaving full mode
+      if (viewMode === 'full' && !savedSize) {
         const size = await win.innerSize();
         savedSize = { width: size.width, height: size.height };
-        debug.log("[compact] saving size, entering compact", savedSize);
+        debug.log("[viewMode] saved full size", savedSize);
+      }
+
+      // Save position if leaving taskbar
+      if (viewMode === 'taskbar') {
+        try {
+          await win.setAlwaysOnTop(false);
+        } catch { /* may not be supported */ }
+      }
+
+      viewMode = target;
+      await taskStore.setViewMode(target);
+
+      if (target === 'full') {
+        await win.setMinSize(new LogicalSize(380, 400));
+        if (savedSize) {
+          await win.setSize(new PhysicalSize(savedSize.width, savedSize.height));
+          savedSize = null;
+        }
+        debug.log("[viewMode] restored full");
+      } else if (target === 'compact') {
         await win.setMinSize(new LogicalSize(100, 30));
-        isCompact = true;
-        // Wait for .compact-strip to appear (poll up to 500ms)
         for (let i = 0; i < 10; i++) {
           await new Promise((r) => setTimeout(r, 50));
-          const strip = document.querySelector(".compact-strip");
-          if (strip) {
-            debug.log("[compact] strip found after " + (i + 1) * 50 + "ms");
-            break;
-          }
+          if (document.querySelector(".compact-strip")) break;
         }
         await new Promise<void>((r) => {
           requestAnimationFrame(() => requestAnimationFrame(() => r()));
         });
         await fitCompactWindow();
+        debug.log("[viewMode] compact");
+      } else if (target === 'taskbar') {
+        const screenW = screen.availWidth;
+        const taskbarH = 42;
+        await win.setMinSize(new LogicalSize(400, taskbarH));
+        await win.setSize(new PhysicalSize(Math.ceil(screenW * dpr), Math.ceil(taskbarH * dpr)));
+        try {
+          await win.setPosition(new PhysicalPosition(0, 0));
+        } catch (e) {
+          debug.warn("[viewMode] setPosition failed", e);
+        }
+        try {
+          await win.setAlwaysOnTop(true);
+        } catch (e) {
+          debug.warn("[viewMode] setAlwaysOnTop failed", e);
+        }
+        debug.log("[viewMode] taskbar mode set", { screenW, taskbarH });
       }
     } catch (e) {
-      debug.error("[compact] toggleCompact failed", e);
-      console.error("toggleCompact failed:", e);
+      debug.error("[viewMode] switchViewMode failed", e);
+      console.error("switchViewMode failed:", e);
     }
   }
 
@@ -179,10 +211,20 @@
 <div
   class="app"
   class:locked={isLocked}
-  class:compact-mode={isCompact}
+  class:compact-mode={viewMode === 'compact'}
+  class:taskbar-mode={viewMode === 'taskbar'}
   role="application"
 >
-  {#if isCompact}
+  {#if viewMode === 'taskbar'}
+    <TaskbarPanel
+      {pomodoroWork}
+      {pomodoroBreak}
+      onSettings={() => (settingsOpen = true)}
+      onSwitchMode={switchViewMode}
+      onClose={closeApp}
+      onDragStart={handleDragStart}
+    />
+  {:else if viewMode === 'compact'}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="compact-strip" role="banner" onmousedown={handleDragStart}>
       <div class="compact-strip-top">
@@ -191,7 +233,7 @@
           class="compact-expand-btn"
           type="button"
           onmousedown={(e) => e.stopPropagation()}
-          onclick={toggleCompact}
+          onclick={() => switchViewMode('full')}
           title="Развернуть окно">◱</button
         >
       </div>
@@ -237,7 +279,16 @@
         class="icon-btn"
         type="button"
         onmousedown={(e) => e.stopPropagation()}
-        onclick={toggleCompact}
+        onclick={() => switchViewMode('taskbar')}
+        title="Режим панели"
+      >
+        ▬
+      </button>
+      <button
+        class="icon-btn"
+        type="button"
+        onmousedown={(e) => e.stopPropagation()}
+        onclick={() => switchViewMode('compact')}
         title="Свернуть до активной задачи"
       >
         ▲
@@ -313,6 +364,17 @@
     overflow: hidden;
     font-family: "Rajdhani", "Orbitron", "Exo 2", sans-serif;
     isolation: isolate;
+  }
+
+  .app.taskbar-mode {
+    min-width: unset;
+    height: auto;
+    min-height: 40px;
+    border-radius: 0;
+    border: none;
+    border-bottom: 1px solid var(--border-color);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    overflow: visible;
   }
 
   .drag-header {

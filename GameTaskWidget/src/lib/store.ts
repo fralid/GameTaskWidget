@@ -23,6 +23,8 @@ export interface TaskData {
 }
 
 export type ThemeId = 'neon' | 'mono' | 'cyber' | 'matrix';
+export type ViewMode = 'full' | 'compact' | 'taskbar';
+const VALID_VIEW_MODES: ViewMode[] = ['full', 'compact', 'taskbar'];
 
 export interface SettingsData {
   brainsMdPath: string | null;
@@ -30,6 +32,7 @@ export interface SettingsData {
   collapsedGroupIds?: string[];
   groupOrderOverride?: string[];
   theme?: ThemeId;
+  viewMode?: ViewMode;
   debugMode?: boolean;
   pomodoroWorkMinutes?: number;
   pomodoroBreakMinutes?: number;
@@ -220,6 +223,7 @@ class TaskStore {
   private collapsedGroupIds: Set<string> = new Set();
   private groupOrderOverride: string[] | null = null;
   private theme: ThemeId = 'neon';
+  private viewMode: ViewMode = 'full';
   private debugMode = false;
   private pomodoroWorkMinutes = 25;
   private pomodoroBreakMinutes = 5;
@@ -282,6 +286,9 @@ class TaskStore {
       if (settings?.theme && VALID_THEMES.includes(settings.theme)) {
         this.theme = settings.theme;
       }
+      if (settings?.viewMode && VALID_VIEW_MODES.includes(settings.viewMode)) {
+        this.viewMode = settings.viewMode;
+      }
       if (settings && typeof settings.debugMode === 'boolean') {
         this.debugMode = settings.debugMode;
       }
@@ -306,6 +313,7 @@ class TaskStore {
         collapsedGroupIds: [...this.collapsedGroupIds],
         groupOrderOverride: this.groupOrderOverride ?? undefined,
         theme: this.theme,
+        viewMode: this.viewMode,
         debugMode: this.debugMode,
         pomodoroWorkMinutes: this.pomodoroWorkMinutes,
         pomodoroBreakMinutes: this.pomodoroBreakMinutes,
@@ -554,6 +562,16 @@ class TaskStore {
 
   async setTheme(theme: ThemeId): Promise<void> {
     this.theme = theme;
+    await this.saveSettings();
+    this.notify();
+  }
+
+  getViewMode(): ViewMode {
+    return this.viewMode;
+  }
+
+  async setViewMode(mode: ViewMode): Promise<void> {
+    this.viewMode = mode;
     await this.saveSettings();
     this.notify();
   }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
-  import { taskStore, type ThemeId } from "./store";
+  import { taskStore, type ThemeId, type ViewMode } from "./store";
   import { pomodoroStore } from "./pomodoroStore";
 
   interface Props {
@@ -230,6 +230,21 @@
           </div>
         </div>
 
+        <div class="viewmode-section">
+          <span class="label">Режим отображения</span>
+          <div class="viewmode-options" role="group" aria-label="Выбор режима">
+            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'full'} onclick={() => taskStore.setViewMode('full')}>
+              <span class="vm-icon">▢</span> Полный
+            </button>
+            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'compact'} onclick={() => taskStore.setViewMode('compact')}>
+              <span class="vm-icon">▬</span> Компактный
+            </button>
+            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'taskbar'} onclick={() => taskStore.setViewMode('taskbar')}>
+              <span class="vm-icon">▓</span> Панель
+            </button>
+          </div>
+        </div>
+
         <div class="debug-mode-section">
           <label class="debug-mode-label">
             <input
@@ -452,6 +467,50 @@
     margin-top: 1.5rem;
     padding-top: 1rem;
     border-top: 1px solid var(--group-border);
+  }
+
+  .viewmode-section {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--group-border);
+  }
+
+  .viewmode-options {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .viewmode-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-secondary);
+    border: 1px solid var(--group-border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .viewmode-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  .viewmode-btn.selected {
+    border-color: var(--accent);
+    background: var(--group-bg);
+    color: var(--accent);
+  }
+
+  .vm-icon {
+    font-size: 1rem;
   }
 
   .debug-mode-section {
