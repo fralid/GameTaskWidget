@@ -73,7 +73,7 @@
   .pomodoro {
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: var(--spacing-from-controls);
     padding: 0.25rem var(--content-padding-h, 1rem);
     background: var(--group-bg);
     border-bottom: 1px solid var(--group-border);
@@ -98,6 +98,7 @@
     display: flex;
     gap: 0.2rem;
     margin-left: auto;
+    flex-shrink: 0;
   }
 
   .pomodoro-btn {
@@ -123,9 +124,14 @@
 
   .pomodoro.compact {
     padding: 0.25rem 0.4rem;
-    gap: 0.4rem;
+    gap: var(--spacing-from-controls);
     border-bottom: none;
     background: transparent;
+  }
+
+  .pomodoro.compact .pomodoro-actions {
+    margin-left: var(--spacing-from-controls);
+    flex-shrink: 0;
   }
 
   .pomodoro.compact .pomodoro-phase {

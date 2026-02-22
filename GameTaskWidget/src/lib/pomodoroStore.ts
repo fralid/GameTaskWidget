@@ -13,6 +13,8 @@ let isRunning = false;
 let workMinutes = 25;
 let breakMinutes = 5;
 let intervalId: ReturnType<typeof setInterval> | null = null;
+/** Target end time (ms) to avoid setInterval drift */
+let endTimeMs: number = 0;
 
 function notify() {
   listeners.forEach((cb) => cb());
@@ -23,15 +25,19 @@ function startPhase(p: PomodoroPhase) {
   const w = Math.max(1, Math.min(120, workMinutes));
   const b = Math.max(1, Math.min(60, breakMinutes));
   remainingSeconds = p === "work" ? w * 60 : b * 60;
+  endTimeMs = Date.now() + remainingSeconds * 1000;
   notify();
 }
 
 function tick() {
+  if (isRunning && endTimeMs > 0) {
+    const left = Math.ceil((endTimeMs - Date.now()) / 1000);
+    remainingSeconds = Math.max(0, left);
+  }
   if (remainingSeconds <= 0) {
     startPhase(phase === "work" ? "break" : "work");
     return;
   }
-  remainingSeconds -= 1;
   notify();
 }
 
@@ -74,6 +80,7 @@ export const pomodoroStore = {
       intervalId = null;
     } else {
       isRunning = true;
+      endTimeMs = Date.now() + remainingSeconds * 1000;
       intervalId = setInterval(tick, 1000);
     }
     notify();

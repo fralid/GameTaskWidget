@@ -51,7 +51,8 @@ const LOAD_TIMEOUT_MS = 8000;
 
 function bootstrap() {
   const timeoutId = setTimeout(() => {
-    if (!root.querySelector('.app')) {
+    const mounted = root.querySelector('.app');
+    if (!mounted) {
       hideLoading();
       showError(new Error('Таймаут загрузки приложения (8 с). Скопируйте отладку и отправьте разработчику.'));
       if (debugBar) debugBar.style.display = 'flex';

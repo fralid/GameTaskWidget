@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { PhysicalSize, LogicalSize } from "@tauri-apps/api/dpi";
   import TaskItem from "./TaskItem.svelte";
   import { taskStore, type Task, type TaskGroup } from "./store";
+  import { getGroupIconUrl } from "./groupIcons";
   import * as debug from "./debug";
+
+  const FALLBACK_GROUP_ICONS = ["Day/adjustments.ico"];
 
   interface Props {
     compact?: boolean;
@@ -22,17 +25,39 @@
   let focusedIndex = $state(-1);
   let editingGroupId = $state<string | null>(null);
   let editGroupTitle = $state("");
-  let showEmojiPicker = $state<string | null>(null);
-  let taskSource = $state<'store' | 'md'>('store');
+  let showIconPicker = $state<string | null>(null);
   let draggingGroupId = $state<string | null>(null);
   let dropGroupIndex = $state<number>(-1);
+  let deleteConfirm = $state<{ taskId: string; text: string } | null>(null);
 
-  const EMOJIS = [
-    "📋", "🎯", "🔥", "💼", "📚", "🎨", "🎮", "💡",
-    "⚡", "🚀", "🏠", "👥", "📹", "🎵", "💰", "🧠",
-    "⭐", "❤️", "🌟", "🔧", "📌", "🏆", "🎬", "🗂️",
-    "💻", "📊", "🎧", "✅", "🔔", "💎", "🌈", "🛠️",
-  ];
+  function requestDeleteTask(task: Task) {
+    deleteConfirm = { taskId: task.id, text: task.text };
+  }
+
+  async function confirmDeleteTask() {
+    if (!deleteConfirm) return;
+    await taskStore.deleteTask(deleteConfirm.taskId);
+    deleteConfirm = null;
+  }
+
+  /** Список иконок из public/ico (генерируется в manifest.json при старте Vite) */
+  let groupIconsList = $state<string[]>([]);
+
+  /** В пикере иконок: открытая папка (null = показ папок) */
+  let iconPickerExpandedFolder = $state<string | null>(null);
+
+  /** Группировка иконок по папке: { "Day": ["Day/a.ico", ...], "": ["root.ico"] } */
+  let groupIconsByFolder = $derived.by(() => {
+    const list = groupIconsList.length ? groupIconsList : FALLBACK_GROUP_ICONS;
+    const byFolder: Record<string, string[]> = {};
+    for (const path of list) {
+      const i = path.indexOf("/");
+      const folder = i >= 0 ? path.slice(0, i) : "";
+      if (!byFolder[folder]) byFolder[folder] = [];
+      byFolder[folder].push(path);
+    }
+    return byFolder;
+  });
 
   let savedListSize: { width: number; height: number } | null = null;
 
@@ -78,6 +103,24 @@
     editingGroupId = groupId;
     editGroupTitle = currentTitle;
     showEmojiPicker = null;
+    showIconPicker = null;
+  }
+
+  function getGroupIconFromTitle(title: string): string {
+    if (!title?.length) return "•";
+    const leading = title.match(/^[^\p{L}\p{N}]+/u)?.[0]?.trim();
+    if (leading) return leading;
+    return [...title][0] ?? "•";
+  }
+
+  function getGroupTitleWithoutEmoji(title: string): string {
+    if (!title?.length) return "";
+    return title.replace(/^[^\p{L}\p{N}]+/u, "").trim() || title;
+  }
+
+  async function handleIconPick(groupId: string, icon: string) {
+    await taskStore.setGroupIcon(groupId, icon);
+    showIconPicker = null;
   }
 
   async function saveEditGroup() {
@@ -92,32 +135,15 @@
     await taskStore.deleteGroup(groupId);
   }
 
-  async function handleEmojiPick(groupId: string, emoji: string) {
-    await taskStore.setGroupEmoji(groupId, emoji);
-    showEmojiPicker = null;
-  }
-
   // Compute activeTask only once via $derived
   let currentActiveTask = $derived<Task | null>(
     activeTaskId ? (tasks.find((t) => t.id === activeTaskId) ?? null) : null,
   );
 
   $effect(() => {
-    if (showAddGroup) setTimeout(() => addGroupInputEl?.focus(), 50);
-  });
-
-  // Use onMount for subscription — runs once, no leak
-  onMount(() => {
-    function sync() {
-      tasks = taskStore.getTasks();
-      groups = taskStore.getGroups();
-      collapsedIds = taskStore.getCollapsedGroupIds();
-      activeTaskId = taskStore.getActiveTaskId();
-      taskSource = taskStore.getTaskSource();
+    if (showAddGroup) {
+      tick().then(() => addGroupInputEl?.focus());
     }
-    sync();
-    const unsubscribe = taskStore.subscribe(sync);
-    return () => unsubscribe();
   });
 
   function startGroupDrag(e: MouseEvent, groupId: string) {
@@ -126,14 +152,16 @@
     e.stopPropagation();
     draggingGroupId = groupId;
     dropGroupIndex = -1;
-    document.body.style.cursor = 'grabbing';
-    document.body.style.userSelect = 'none';
+    document.body.style.cursor = "grabbing";
+    document.body.style.userSelect = "none";
 
     function onMouseMove(ev: MouseEvent) {
-      const groupEls = document.querySelectorAll<HTMLElement>('.group[data-group-id]');
+      const groupEls = document.querySelectorAll<HTMLElement>(
+        ".group[data-group-id]",
+      );
       let idx = 0;
       for (const el of groupEls) {
-        if (el.dataset.groupId === 'active') continue;
+        if (el.dataset.groupId === "active") continue;
         const rect = el.getBoundingClientRect();
         if (ev.clientY < rect.top + rect.height / 2) {
           dropGroupIndex = idx;
@@ -145,20 +173,24 @@
     }
 
     async function onMouseUp() {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
       const fromIndex = groups.findIndex((g) => g.id === draggingGroupId);
-      if (fromIndex >= 0 && dropGroupIndex >= 0 && dropGroupIndex <= groups.length) {
+      if (
+        fromIndex >= 0 &&
+        dropGroupIndex >= 0 &&
+        dropGroupIndex <= groups.length
+      ) {
         await taskStore.reorderGroups(fromIndex, dropGroupIndex);
       }
       draggingGroupId = null;
       dropGroupIndex = -1;
     }
 
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
   }
 
   const DEFAULT_GROUP_ID = "";
@@ -224,9 +256,7 @@
     ) {
       e.preventDefault();
       const task = tasks[focusedIndex];
-      if (task && confirm(`Удалить задачу «${task.text}»?`)) {
-        taskStore.deleteTask(task.id);
-      }
+      if (task) requestDeleteTask(task);
     }
   }
 
@@ -240,7 +270,32 @@
   let dragOverGroupId = $state<string | null>(null);
   let dragOverIndex = $state<number>(-1);
 
+  $effect(() => {
+    if (!deleteConfirm) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") deleteConfirm = null;
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  });
+
   onMount(() => {
+    fetch(getGroupIconUrl("manifest.json"))
+      .then((r) => r.ok ? r.json() : null)
+      .then((paths: string[] | null) => {
+        if (Array.isArray(paths) && paths.length > 0) groupIconsList = paths;
+      })
+      .catch(() => {});
+
+    function sync() {
+      tasks = taskStore.getTasks();
+      groups = taskStore.getGroups();
+      collapsedIds = taskStore.getCollapsedGroupIds();
+      activeTaskId = taskStore.getActiveTaskId();
+    }
+    sync();
+    const unsubscribe = taskStore.subscribe(sync);
+
     function onDragStart(e: Event) {
       const ce = e as CustomEvent<{ taskId: string }>;
       draggingTaskId = ce.detail.taskId;
@@ -329,6 +384,7 @@
       onDragStart as EventListener,
     );
     return () => {
+      unsubscribe();
       container?.removeEventListener(
         "task-drag-start",
         onDragStart as EventListener,
@@ -439,11 +495,10 @@
               class:collapsed={collapsedIds.has("__active__")}>▸</span
             >
             <span class="group-title">Активная задача</span>
-            <span class="group-count">1</span>
           </button>
           {#if !collapsedIds.has("__active__")}
             <div class="group-tasks">
-              <TaskItem task={currentActiveTask} active={true} {groups} />
+              <TaskItem task={currentActiveTask} active={true} {groups} onDeleteRequest={requestDeleteTask} />
             </div>
           {/if}
         </div>
@@ -490,14 +545,19 @@
                   class="group-drag-handle"
                   role="presentation"
                   title="Перетащить группу"
-                  onmousedown={(e) => startGroupDrag(e, group.id)}
-                >⋮⋮</span>
+                  onmousedown={(e) => startGroupDrag(e, group.id)}>⋮⋮</span
+                >
               {/if}
               <span
                 class="group-chevron"
                 class:collapsed={collapsedIds.has(group.id)}>▸</span
               >
-              <span class="group-title">{group.title}</span>
+              {#if group.icon}
+                <img class="group-icon-img" src={getGroupIconUrl(group.icon)} alt="" aria-hidden="true" />
+              {:else}
+                <span class="group-icon-emoji" aria-hidden="true">{getGroupIconFromTitle(group.title)}</span>
+              {/if}
+              <span class="group-title">{getGroupTitleWithoutEmoji(group.title)}</span>
               <span class="group-count">{groupTasks.length}</span>
               <span class="group-actions">
                 <button
@@ -505,10 +565,11 @@
                   class="group-action-btn"
                   onclick={(e) => {
                     e.stopPropagation();
-                    showEmojiPicker =
-                      showEmojiPicker === group.id ? null : group.id;
+                    const open = showIconPicker === group.id ? null : group.id;
+                    showIconPicker = open;
+                    iconPickerExpandedFolder = null;
                   }}
-                  title="Смайлик">🎭</button
+                  title="Иконка">🖼</button
                 >
                 <button
                   type="button"
@@ -532,15 +593,50 @@
                 {/if}
               </span>
             </div>
-            {#if showEmojiPicker === group.id}
-              <div class="emoji-picker">
-                {#each EMOJIS as em}
-                  <button
-                    type="button"
-                    class="emoji-btn"
-                    onclick={() => handleEmojiPick(group.id, em)}>{em}</button
-                  >
-                {/each}
+            {#if showIconPicker === group.id}
+              <div class="icon-picker">
+                <button
+                  type="button"
+                  class="icon-picker-clear"
+                  onclick={() => handleIconPick(group.id, null)}>Убрать иконку</button
+                >
+                {#if iconPickerExpandedFolder !== null}
+                  <div class="icon-picker-folder-bar">
+                    <button
+                      type="button"
+                      class="icon-picker-back"
+                      onclick={() => (iconPickerExpandedFolder = null)}>← Назад</button
+                    >
+                    <span class="icon-picker-folder-name">{iconPickerExpandedFolder || "Иконки"}</span>
+                  </div>
+                  <div class="icon-picker-grid">
+                    {#each (groupIconsByFolder[iconPickerExpandedFolder] ?? []) as iconPath}
+                      <button
+                        type="button"
+                        class="icon-picker-btn"
+                        class:active={group.icon === iconPath}
+                        onclick={() => handleIconPick(group.id, iconPath)}
+                        title={iconPath}>
+                        <img src={getGroupIconUrl(iconPath)} alt="" />
+                      </button>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="icon-picker-folders">
+                    {#each Object.entries(groupIconsByFolder) as [folderName, paths]}
+                      {@const firstPath = paths[0]}
+                      <button
+                        type="button"
+                        class="icon-picker-folder-btn"
+                        onclick={() => (iconPickerExpandedFolder = folderName)}
+                        title={folderName || "Корень"}>
+                        <img src={getGroupIconUrl(firstPath)} alt="" />
+                        <span class="icon-picker-folder-label">{folderName || "Прочее"}</span>
+                        <span class="icon-picker-folder-count">{paths.length}</span>
+                      </button>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             {/if}
           {/if}
@@ -555,7 +651,7 @@
                   {#if draggingTaskId && dragOverGroupId === group.id && dragOverIndex === i}
                     <div class="drop-line"></div>
                   {/if}
-                  <TaskItem {task} active={activeTaskId === task.id} {groups} />
+                  <TaskItem {task} active={activeTaskId === task.id} {groups} onDeleteRequest={requestDeleteTask} />
                 {/each}
                 {#if draggingTaskId && dragOverGroupId === group.id && dragOverIndex >= groupTasks.length}
                   <div class="drop-line"></div>
@@ -574,6 +670,27 @@
       <p>Добавь первую задачу</p>
     </div>
   {/if}
+
+  {#if deleteConfirm}
+    <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+    <div
+      class="delete-confirm-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-confirm-title"
+      tabindex="-1"
+      onclick={() => (deleteConfirm = null)}
+      onkeydown={(e) => e.key === 'Escape' && (deleteConfirm = null)}>
+      <!-- svelte-ignore a11y_no_static_element_interactions a11y_click_events_have_key_events -->
+      <div class="delete-confirm-box" role="document" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()}>
+        <p id="delete-confirm-title">Удалить задачу «{deleteConfirm.text}»?</p>
+        <div class="delete-confirm-actions">
+          <button type="button" onclick={() => (deleteConfirm = null)}>Отмена</button>
+          <button type="button" class="delete-confirm-do" onclick={() => confirmDeleteTask()}>Удалить</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -583,6 +700,50 @@
     padding: 0 var(--content-padding-h, 1rem);
     padding-top: 0;
     min-height: 0;
+    position: relative;
+  }
+
+  .delete-confirm-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .delete-confirm-box {
+    background: var(--bg-secondary, #1a1a1a);
+    border: 1px solid var(--border-color, #333);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    min-width: 280px;
+  }
+
+  .delete-confirm-box p {
+    margin: 0 0 1rem 0;
+    font-size: 0.95rem;
+  }
+
+  .delete-confirm-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .delete-confirm-actions button {
+    padding: 0.4rem 0.8rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color, #333);
+    background: var(--bg-tertiary, #252525);
+    color: var(--text-color, #eee);
+    cursor: pointer;
+  }
+
+  .delete-confirm-do {
+    background: var(--accent-danger, #c33) !important;
+    border-color: var(--accent-danger, #c33) !important;
   }
 
   .task-list-container.kanban {
@@ -803,34 +964,136 @@
     outline: none;
   }
 
-  .emoji-picker {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem;
+  .icon-picker {
     padding: 0.4rem;
     background: var(--group-bg);
     border: 1px solid var(--group-border);
     border-top: none;
     border-radius: 0 0 6px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    max-height: 220px;
+    overflow-y: auto;
   }
 
-  .emoji-btn {
-    background: none;
+  .icon-picker-clear {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: transparent;
     border: none;
     cursor: pointer;
-    font-size: 1rem;
-    padding: 0.2rem;
-    border-radius: 4px;
-    transition: background 0.1s;
+    padding: 0.2rem 0;
+    text-align: left;
   }
 
-  .emoji-btn:hover {
+  .icon-picker-clear:hover {
+    color: var(--accent);
+  }
+
+  .icon-picker-folder-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0.25rem;
+  }
+
+  .icon-picker-back {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem 0;
+  }
+
+  .icon-picker-back:hover {
+    color: var(--accent);
+  }
+
+  .icon-picker-folder-name {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .icon-picker-folders {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .icon-picker-folder-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.5rem;
+    border: 1px solid var(--group-border);
+    border-radius: 6px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-primary);
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .icon-picker-folder-btn img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+
+  .icon-picker-folder-btn:hover {
+    border-color: var(--accent);
+    background: var(--group-bg);
+  }
+
+  .icon-picker-folder-label {
+    font-weight: 500;
+  }
+
+  .icon-picker-folder-count {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+  }
+
+  .icon-picker-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .icon-picker-btn {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--group-border);
+    border-radius: 4px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  .icon-picker-btn img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+  }
+
+  .icon-picker-btn:hover,
+  .icon-picker-btn.active {
+    border-color: var(--accent);
     background: var(--group-bg);
   }
 
   .group-active .group-header {
     border-color: var(--accent);
     background: var(--group-bg);
+    padding-left: var(--spacing-from-controls);
+    padding-right: var(--spacing-from-controls);
   }
 
   .toggle-all-btn {
@@ -865,7 +1128,7 @@
   .group-header {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--spacing-from-controls);
     width: 100%;
     padding: 0.5rem 0;
     background: var(--group-bg);
@@ -895,6 +1158,21 @@
 
   .group-chevron.collapsed {
     transform: rotate(0);
+  }
+
+  .group-icon-img {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+    min-height: 20px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .group-icon-emoji {
+    font-size: 1em;
+    line-height: 1;
+    flex-shrink: 0;
   }
 
   .group-title {

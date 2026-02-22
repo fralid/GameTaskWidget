@@ -6,9 +6,10 @@
   interface Props {
     open: boolean;
     onclose: () => void;
+    onViewModeChange?: (mode: ViewMode) => void;
   }
 
-  let { open: isOpen, onclose }: Props = $props();
+  let { open: isOpen, onclose, onViewModeChange }: Props = $props();
   let mdPath = $state(taskStore.getMdPath() ?? "");
   let theme = $state<ThemeId>(taskStore.getTheme());
   let debugMode = $state(taskStore.getDebugMode());
@@ -216,6 +217,9 @@
               <kbd>Ctrl+Shift+Space</kbd> <span>Блокировка/разблокировка</span>
             </div>
             <div class="shortcut-row">
+              <kbd>Ctrl+Shift+E</kbd> <span>Режим отладки вкл/выкл</span>
+            </div>
+            <div class="shortcut-row">
               <kbd>↑</kbd> <kbd>↓</kbd> <span>Навигация по задачам</span>
             </div>
             <div class="shortcut-row">
@@ -233,13 +237,37 @@
         <div class="viewmode-section">
           <span class="label">Режим отображения</span>
           <div class="viewmode-options" role="group" aria-label="Выбор режима">
-            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'full'} onclick={() => taskStore.setViewMode('full')}>
+            <button
+              type="button"
+              class="viewmode-btn"
+              class:selected={taskStore.getViewMode() === "full"}
+              onclick={() => {
+                taskStore.setViewMode("full");
+                onViewModeChange?.("full");
+              }}
+            >
               <span class="vm-icon">▢</span> Полный
             </button>
-            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'compact'} onclick={() => taskStore.setViewMode('compact')}>
+            <button
+              type="button"
+              class="viewmode-btn"
+              class:selected={taskStore.getViewMode() === "compact"}
+              onclick={() => {
+                taskStore.setViewMode("compact");
+                onViewModeChange?.("compact");
+              }}
+            >
               <span class="vm-icon">▬</span> Компактный
             </button>
-            <button type="button" class="viewmode-btn" class:selected={taskStore.getViewMode() === 'taskbar'} onclick={() => taskStore.setViewMode('taskbar')}>
+            <button
+              type="button"
+              class="viewmode-btn"
+              class:selected={taskStore.getViewMode() === "taskbar"}
+              onclick={() => {
+                taskStore.setViewMode("taskbar");
+                onViewModeChange?.("taskbar");
+              }}
+            >
               <span class="vm-icon">▓</span> Панель
             </button>
           </div>
@@ -250,11 +278,14 @@
             <input
               type="checkbox"
               checked={debugMode}
-              onchange={(e) => handleDebugModeChange((e.target as HTMLInputElement).checked)}
+              onchange={(e) =>
+                handleDebugModeChange((e.target as HTMLInputElement).checked)}
             />
             <span>Режим отладки</span>
           </label>
-          <p class="debug-mode-desc">Включите, чтобы видеть журнал логов внизу экрана при тестировании.</p>
+          <p class="debug-mode-desc">
+            Включите, чтобы видеть журнал логов внизу экрана при тестировании.
+          </p>
         </div>
       </div>
     </div>

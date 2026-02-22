@@ -31,6 +31,7 @@ export interface SettingsData {
   activeTaskId?: string | null;
   collapsedGroupIds?: string[];
   groupOrderOverride?: string[];
+  groupIcons?: Record<string, string>;
   theme?: ThemeId;
   viewMode?: ViewMode;
   debugMode?: boolean;
@@ -41,12 +42,14 @@ export interface SettingsData {
 export interface TaskGroup {
   id: string;
   title: string;
+  /** Иконка группы: имя файла в /ico/ (например 'Day/adjustments.ico') */
+  icon?: string | null;
 }
 
 const DATA_VERSION = '1.0.0';
 const STORE_PATH = 'tasks.json';
 const DEFAULT_GROUP_ID = '';
-const DEFAULT_GROUP_TITLE = 'Задачи';
+const DEFAULT_GROUP_TITLE = 'Новые задачи';
 const DEBOUNCE_MS = 300;
 const VALID_THEMES: ThemeId[] = ['neon', 'mono', 'cyber', 'matrix'];
 
@@ -66,13 +69,18 @@ function toSlug(s: string): string {
 /** Simple hash for generating stable task IDs from content */
 function stableId(text: string, groupId: string, index: number): string {
   let hash = 0;
-  const str = `${groupId}::${text}`;
+  // Make the hash depend purely on text and group context (slug format for stability)
+  const normalizedText = text.trim().toLowerCase().replace(/\s+/g, '-');
+  const str = `${groupId}::${normalizedText}`;
   for (let i = 0; i < str.length; i++) {
     const c = str.charCodeAt(i);
     hash = ((hash << 5) - hash + c) | 0;
   }
-  // Add index to disambiguate identical tasks in the same group
-  return `md-${(hash >>> 0).toString(36)}-${index}`;
+  // Instead of relying purely on index which changes on reorder, we use a simpler
+  // deterministic hash of the text. The index is only used for true text duplicates, 
+  // preventing ID collisions for identically named tasks in the same group.
+  // Object.is(NaN, index) guards against NaN so we don't emit "NaN" in the id.
+  return `md-${(hash >>> 0).toString(36)}-${index > 0 ? (Object.is(NaN, index) ? 0 : index) : 0}`;
 }
 
 /**
@@ -82,7 +90,8 @@ function stableId(text: string, groupId: string, index: number): string {
 interface MdLine {
   type: 'task' | 'header' | 'other';
   raw: string;
-  taskIndex?: number; // index into parsed tasks array
+  taskIndex?: number; // index into parsed tasks array (legacy, use taskId for matching)
+  taskId?: string; // stable id to match task after reorder
   groupId?: string;
 }
 
@@ -118,7 +127,11 @@ function parseMd(
     if (m) {
       const done = m[1].toLowerCase() === 'x';
       const text = m[2].trim() || '(без текста)';
-      const taskId = stableId(text, currentGroupId, order);
+      // Calculate how many times THIS EXACT string has appeared in this group before
+      // This is crucial for fixing the bug where rearranging tasks changes their ID
+      const duplicatesBefore = tasks.filter(t => t.text === text && t.groupId === currentGroupId).length;
+
+      const taskId = stableId(text, currentGroupId, duplicatesBefore);
       tasks.push({
         id: taskId,
         text,
@@ -128,7 +141,7 @@ function parseMd(
         updatedAt: now,
         groupId: currentGroupId,
       });
-      lines.push({ type: 'task', raw: line, taskIndex: order, groupId: currentGroupId });
+      lines.push({ type: 'task', raw: line, taskIndex: order, taskId, groupId: currentGroupId });
       order++;
     } else {
       lines.push({ type: 'other', raw: line });
@@ -138,10 +151,31 @@ function parseMd(
   return { tasks, groupOrder, groupTitles, lines };
 }
 
+/** Строка с %% — блок Obsidian (kanban:settings и т.д.), замыкающий блок должен быть в конце файла. */
+const OBSIDIAN_BLOCK_MARKER = /^\s*%%/;
+
 /**
- * Serialize tasks back to MD, preserving non-checklist content.
- * If we have the original lines structure, we update in-place.
- * Otherwise, we generate a clean output.
+ * Находит один блок %% ... %% (включительно) и возвращает [contentLines, trailingBlock].
+ * contentLines = всё, что не входит в блок (в т.ч. секции после блока); trailingBlock = строки от первой %% до второй %%.
+ */
+function splitTrailingBlock(lines: MdLine[]): { contentLines: MdLine[]; trailingBlock: MdLine[] } {
+  const i = lines.findIndex((l) => OBSIDIAN_BLOCK_MARKER.test(l.raw));
+  if (i < 0) return { contentLines: lines, trailingBlock: [] };
+  const next = lines.slice(i + 1).findIndex((l) => OBSIDIAN_BLOCK_MARKER.test(l.raw));
+  const j = next < 0 ? lines.length - 1 : i + 1 + next;
+  const trailingBlock = lines.slice(i, j + 1);
+  const contentLines = [...lines.slice(0, i), ...lines.slice(j + 1)];
+  return { contentLines, trailingBlock };
+}
+
+/**
+ * Serialize tasks back to MD for Obsidian Kanban / board-style files.
+ *
+ * Формат записи (как в Obsidian):
+ * - Строки до первого заголовка — задачи группы по умолчанию (без ##).
+ * - Заголовок: ## Название группы (или ###, как в файле).
+ * - Задачи: - [ ] текст или - [x] текст.
+ * - Блок %% kanban:settings ... %% — всегда выводится в самом конце файла.
  */
 function serializeMdWithContext(
   tasks: Task[],
@@ -149,59 +183,88 @@ function serializeMdWithContext(
   groupTitles: Record<string, string>,
   originalLines: MdLine[] | null
 ): string {
+  const tasksById = new Map<string, Task>();
+  for (const t of tasks) tasksById.set(t.id, t);
+
   if (originalLines && originalLines.length > 0) {
-    // Reconstruct from original structure, updating only task lines
-    const tasksByOrigIndex = new Map<number, Task>();
-    // Build a map of original task indices to current task states
-    let taskIdx = 0;
-    for (const line of originalLines) {
-      if (line.type === 'task' && line.taskIndex !== undefined) {
-        // Find the matching task by order (taskIndex corresponds to parse order)
-        const t = tasks.find((t) => t.order === line.taskIndex);
-        if (t) {
-          tasksByOrigIndex.set(line.taskIndex, t);
-        }
-        taskIdx++;
-      }
-    }
+    const { contentLines, trailingBlock } = splitTrailingBlock(originalLines);
+    const groupOrderSet = new Set(groupOrder);
 
     const result: string[] = [];
-    for (const line of originalLines) {
-      if (line.type === 'task' && line.taskIndex !== undefined) {
-        const t = tasksByOrigIndex.get(line.taskIndex);
-        if (t) {
-          result.push(`- [${t.done ? 'x' : ' '}] ${t.text}`);
+    let skipSection = false;
+    for (const line of contentLines) {
+      if (line.type === 'header') {
+        const gid = line.groupId;
+        if (gid != null && !groupOrderSet.has(gid)) {
+          skipSection = true;
+          continue;
         }
-        // If task was deleted, skip the line
-      } else {
-        result.push(line.raw);
+        skipSection = false;
+        const prefix = line.raw.match(/^(#+\s*)/)?.[1] ?? '## ';
+        const title = (line.groupId != null && line.groupId !== undefined)
+          ? (groupTitles[line.groupId] ?? line.raw.replace(/^#+\s*/, '').trim())
+          : line.raw.replace(/^#+\s*/, '').trim();
+        result.push(prefix.trimEnd() + ' ' + title);
+        continue;
       }
+      if (line.type === 'task') {
+        if (skipSection) continue;
+        const t = line.taskId != null ? tasksById.get(line.taskId) : null;
+        if (t) {
+          const lineGroupId = line.groupId ?? DEFAULT_GROUP_ID;
+          const taskGroupId = t.groupId ?? DEFAULT_GROUP_ID;
+          if (lineGroupId !== taskGroupId) {
+            // Task was moved to another group — don't write here; it will be written in newTasks block
+            continue;
+          }
+          result.push(`- [${t.done ? 'x' : ' '}] ${t.text}`);
+        } else if (line.taskId != null) {
+          // Task was deleted, skip the line
+        } else {
+          result.push(line.raw);
+        }
+        continue;
+      }
+      if (skipSection) continue;
+      result.push(line.raw);
     }
 
-    // Append any newly added tasks (tasks without an original taskIndex match)
-    const existingOrders = new Set(
-      originalLines.filter((l) => l.type === 'task').map((l) => l.taskIndex)
+    const existingTaskIds = new Set(
+      contentLines.filter((l) => l.type === 'task' && l.taskId != null).map((l) => l.taskId!)
     );
-    const newTasks = tasks.filter((t) => !existingOrders.has(t.order));
+    // New tasks: not in file yet, OR in file but moved to another group (must be written in new section)
+    const newTasks = tasks.filter((t) => {
+      if (!existingTaskIds.has(t.id)) return true;
+      const line = contentLines.find((l) => l.type === 'task' && l.taskId === t.id);
+      if (!line) return true;
+      return (line.groupId ?? DEFAULT_GROUP_ID) !== (t.groupId ?? DEFAULT_GROUP_ID);
+    });
     if (newTasks.length > 0) {
-      // Group new tasks by groupId
+      result.push('');
       for (const gid of groupOrder) {
         const gTasks = newTasks.filter((t) => (t.groupId ?? DEFAULT_GROUP_ID) === gid);
+        if (gTasks.length === 0) continue;
+        const title = groupTitles[gid] ?? (gid || DEFAULT_GROUP_TITLE);
+        if (gid !== DEFAULT_GROUP_ID) result.push(`## ${title}`);
         for (const t of gTasks) {
           result.push(`- [${t.done ? 'x' : ' '}] ${t.text}`);
         }
       }
     }
 
+    if (trailingBlock.length > 0) {
+      result.push('');
+      for (const l of trailingBlock) result.push(l.raw);
+    }
     return result.join('\n');
   }
 
-  // Fallback: generate clean output (store mode or no original lines)
+  // Полная пересборка: порядок по groupOrder, каждая секция — ## Заголовок и задачи
   const out: string[] = [];
   for (const gid of groupOrder) {
     const groupTasks = tasks.filter((t) => (t.groupId ?? DEFAULT_GROUP_ID) === gid);
     if (groupTasks.length === 0) continue;
-    const title = groupTitles[gid] ?? gid;
+    const title = groupTitles[gid] ?? (gid || DEFAULT_GROUP_TITLE);
     if (gid !== DEFAULT_GROUP_ID) out.push(`## ${title}`);
     for (const t of groupTasks) {
       out.push(`- [${t.done ? 'x' : ' '}] ${t.text}`);
@@ -219,6 +282,7 @@ class TaskStore {
   private mdPath: string | null = null;
   private groupOrder: string[] = [DEFAULT_GROUP_ID];
   private groupTitles: Record<string, string> = { [DEFAULT_GROUP_ID]: DEFAULT_GROUP_TITLE };
+  private groupIcons: Record<string, string> = {};
   private activeTaskId: string | null = null;
   private collapsedGroupIds: Set<string> = new Set();
   private groupOrderOverride: string[] | null = null;
@@ -245,7 +309,8 @@ class TaskStore {
 
   async init() {
     try {
-      this.store = await load(STORE_PATH, { autoSave: false });
+      // Plugin store options type may not be exported; autoSave: false to control persist manually
+      this.store = await load(STORE_PATH, { autoSave: false } as Parameters<typeof load>[1]);
       await this.loadSettings();
       await this.load();
       if (this.mdPath) {
@@ -283,6 +348,11 @@ class TaskStore {
       } else {
         this.groupOrderOverride = null;
       }
+      if (settings?.groupIcons && typeof settings.groupIcons === 'object') {
+        this.groupIcons = { ...settings.groupIcons };
+      } else {
+        this.groupIcons = {};
+      }
       if (settings?.theme && VALID_THEMES.includes(settings.theme)) {
         this.theme = settings.theme;
       }
@@ -312,6 +382,7 @@ class TaskStore {
         activeTaskId: this.activeTaskId,
         collapsedGroupIds: [...this.collapsedGroupIds],
         groupOrderOverride: this.groupOrderOverride ?? undefined,
+        groupIcons: Object.keys(this.groupIcons).length ? this.groupIcons : undefined,
         theme: this.theme,
         viewMode: this.viewMode,
         debugMode: this.debugMode,
@@ -510,6 +581,7 @@ class TaskStore {
     this.cachedGroups = order.map((id) => ({
       id,
       title: this.groupTitles[id] ?? (id || DEFAULT_GROUP_TITLE),
+      icon: this.groupIcons[id] ?? null,
     }));
   }
 
@@ -607,21 +679,31 @@ class TaskStore {
     const t = title.trim();
     if (!t) return DEFAULT_GROUP_ID;
     const id = toSlug(t) || `group-${Date.now()}`;
-    if (this.groupOrder.includes(id)) return id;
+    const order = this.taskSource === 'md' ? (this.groupOrderOverride ?? this.groupOrder) : this.groupOrder;
+    if (order.includes(id)) return id;
     this.groupOrder.push(id);
     this.groupTitles[id] = t;
-    await this.persistDebounced();
+    if (this.taskSource === 'md') {
+      this.groupOrderOverride = [...order, id];
+      await this.saveSettings();
+    } else {
+      await this.persistDebounced();
+    }
     this.invalidateCache();
     this.notify();
     return id;
   }
 
   async deleteGroup(groupId: string): Promise<boolean> {
-    // Only delete empty groups
     const hasTasks = this.tasks.some((t) => (t.groupId ?? DEFAULT_GROUP_ID) === groupId);
     if (hasTasks || !groupId) return false;
     this.groupOrder = this.groupOrder.filter((id) => id !== groupId);
+    if (this.taskSource === 'md' && this.groupOrderOverride) {
+      this.groupOrderOverride = this.groupOrderOverride.filter((id) => id !== groupId);
+      await this.saveSettings();
+    }
     delete this.groupTitles[groupId];
+    delete this.groupIcons[groupId];
     await this.persistDebounced();
     this.invalidateCache();
     this.notify();
@@ -665,6 +747,22 @@ class TaskStore {
     const stripped = title.replace(/^[^\p{L}\p{N}]+/u, '').trim() || (groupId || DEFAULT_GROUP_TITLE);
     this.groupTitles[groupId] = emoji ? `${emoji} ${stripped}` : stripped;
     await this.persistDebounced();
+    this.invalidateCache();
+    this.notify();
+  }
+
+  getGroupIcon(groupId: string): string | null {
+    return this.groupIcons[groupId] ?? null;
+  }
+
+  async setGroupIcon(groupId: string, icon: string | null): Promise<void> {
+    if (groupId == null) return;
+    if (icon) {
+      this.groupIcons[groupId] = icon;
+    } else {
+      delete this.groupIcons[groupId];
+    }
+    await this.saveSettings();
     this.invalidateCache();
     this.notify();
   }

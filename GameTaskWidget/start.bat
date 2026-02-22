@@ -10,5 +10,12 @@ if not exist "node_modules" (
     call npm install
 )
 
-:: Launch without console window
-start "" /min cmd /c "npm run tauri:dev"
+:: Run in this window so you can see output; window stays open when the app exits
+echo.
+echo Starting Game Task Widget...
+echo.
+call npm run tauri:dev
+echo.
+echo Process ended. Exit code: %ERRORLEVEL%
+echo.
+pause

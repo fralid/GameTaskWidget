@@ -13,6 +13,8 @@ function formatErr(e: unknown): { message: string; stack?: string } {
 }
 
 function showErrorUI(message: string, stack?: string) {
+  const loading = document.getElementById('loading');
+  if (loading) loading.style.display = 'none';
   const box = document.getElementById('error-box');
   if (!box) return;
   const msgEl = document.getElementById('error-msg');

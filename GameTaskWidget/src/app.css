@@ -1,7 +1,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Orbitron:wght@400;500;600;700&family=Exo+2:wght@300;400;500;600;700&display=swap');
 
 :root {
-  --content-padding-h: 1rem;
+  /** Единый минимальный отступ между контентом (текст и т.п.) и кнопками/управлением по всему приложению. */
+  --spacing-from-controls: 1rem;
+  --content-padding-h: 0.75rem;
   --content-pg-bottom: 1rem;
   --bg-primary: #0a0a0f;
   --bg-secondary: rgba(255, 255, 255, 0.05);
@@ -105,7 +107,7 @@ body {
 
 body {
   font-family: 'Rajdhani', 'Orbitron', 'Exo 2', sans-serif;
-  background: transparent;
+  background: var(--bg-primary);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -116,13 +118,28 @@ body {
   height: 100%;
 }
 
+/* Компактный виджет: убрать светлую обводку по периметру окна */
+html.compact-widget-mode,
+body.compact-widget-mode {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Dropdown popup window: dark background, no white flash */
+body.dropdown-window,
+body.dropdown-window #app {
+  background: var(--bg-primary) !important;
+  min-height: 100vh;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--scrollbar-track);
+  background: var(--bg-primary);
 }
 
 ::-webkit-scrollbar-thumb {

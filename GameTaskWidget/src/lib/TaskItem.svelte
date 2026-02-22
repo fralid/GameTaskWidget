@@ -5,6 +5,7 @@
     task: Task;
     active?: boolean;
     groups?: TaskGroup[];
+    onDeleteRequest?: (task: Task) => void;
   }
 
   let props: Props = $props();
@@ -20,11 +21,13 @@
     await taskStore.toggleTask(props.task.id);
   }
 
-  async function handleDelete() {
-    // Confirm before deleting
+  function handleDelete() {
+    if (props.onDeleteRequest) {
+      props.onDeleteRequest(props.task);
+      return;
+    }
     if (!confirm(`Удалить задачу «${props.task.text}»?`)) return;
     isDeleting = true;
-    // Wait for CSS animation
     setTimeout(async () => {
       await taskStore.deleteTask(props.task.id);
     }, 200);
@@ -69,7 +72,9 @@
     const cur = props.task.priority ?? "none";
     const idx = PRIORITY_ORDER.indexOf(cur);
     const next = PRIORITY_ORDER[(idx + 1) % PRIORITY_ORDER.length];
-    taskStore.setPriority(props.task.id, next);
+    taskStore.setPriority(props.task.id, next).catch((err) => {
+      console.error("setPriority failed:", err);
+    });
   }
 
   function handleDragStart(e: MouseEvent) {
@@ -183,8 +188,8 @@
   .task-item {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
-    padding: 0.75rem 1rem;
+    gap: var(--spacing-from-controls);
+    padding: 0.75rem var(--spacing-from-controls);
     background: var(--bg-secondary);
     border: 1px solid var(--group-border);
     border-radius: 6px;

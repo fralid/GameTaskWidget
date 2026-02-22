@@ -1,5 +1,5 @@
-// Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// Prevents console window on Windows (app closes = process exits, no leftover console)
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
@@ -9,8 +9,9 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager, Window};
 use tauri_plugin_global_shortcut::ShortcutState;
 
-#[cfg(target_os = "windows")]
-use window_vibrancy::apply_blur;
+// Отключено: на Windows даёт видимую рамку слева/справа/снизу (сверху нет)
+// #[cfg(target_os = "windows")]
+// use window_vibrancy::apply_blur;
 
 static LOCK_STATE: AtomicBool = AtomicBool::new(false);
 
@@ -118,9 +119,20 @@ fn unwatch_md_file(app_handle: tauri::AppHandle) -> Result<(), String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.set_focus();
+                let _ = w.show();
+                let _ = w.unminimize();
+            }
+        }))
         .manage(Mutex::new(WatcherState { watcher: None }))
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .skip_initial_state("main")
+                .build(),
+        )
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcuts(["Control+Shift+Space"])
@@ -154,8 +166,8 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_always_on_top(true);
                 let _ = window.set_ignore_cursor_events(false);
-                #[cfg(target_os = "windows")]
-                let _ = apply_blur(&window, Some((18, 18, 24, 200)));
+                // #[cfg(target_os = "windows")]
+                // let _ = apply_blur(&window, Some((18, 18, 24, 200)));
             }
             Ok(())
         })

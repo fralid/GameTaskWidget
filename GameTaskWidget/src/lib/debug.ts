@@ -20,13 +20,23 @@ function emit() {
 }
 
 function addEntry(level: DebugLevel, msg: string, data?: unknown) {
-  const time = new Date().toLocaleTimeString('ru-RU', {
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    fractionalSecondDigits: 3,
-  });
+  let time: string;
+  try {
+    time = new Date().toLocaleTimeString('ru-RU', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      fractionalSecondDigits: 3,
+    } as Intl.DateTimeFormatOptions);
+  } catch {
+    time = new Date().toLocaleTimeString('ru-RU', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
   entries.push({ time, level, msg, data });
   if (entries.length > MAX_ENTRIES) entries.shift();
   console[level === 'log' ? 'log' : level](msg, data ?? '');
