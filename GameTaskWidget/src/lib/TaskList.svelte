@@ -23,40 +23,15 @@
   let editingGroupId = $state<string | null>(null);
   let editGroupTitle = $state("");
   let showEmojiPicker = $state<string | null>(null);
+  let taskSource = $state<'store' | 'md'>('store');
+  let draggingGroupId = $state<string | null>(null);
+  let dropGroupIndex = $state<number>(-1);
 
   const EMOJIS = [
-    "📋",
-    "🎯",
-    "🔥",
-    "💼",
-    "📚",
-    "🎨",
-    "🎮",
-    "💡",
-    "⚡",
-    "🚀",
-    "🏠",
-    "👥",
-    "📹",
-    "🎵",
-    "💰",
-    "🧠",
-    "⭐",
-    "❤️",
-    "🌟",
-    "🔧",
-    "📌",
-    "🏆",
-    "🎬",
-    "🗂️",
-    "💻",
-    "📊",
-    "🎧",
-    "✅",
-    "🔔",
-    "💎",
-    "🌈",
-    "🛠️",
+    "📋", "🎯", "🔥", "💼", "📚", "🎨", "🎮", "💡",
+    "⚡", "🚀", "🏠", "👥", "📹", "🎵", "💰", "🧠",
+    "⭐", "❤️", "🌟", "🔧", "📌", "🏆", "🎬", "🗂️",
+    "💻", "📊", "🎧", "✅", "🔔", "💎", "🌈", "🛠️",
   ];
 
   let savedListSize: { width: number; height: number } | null = null;
@@ -138,11 +113,53 @@
       groups = taskStore.getGroups();
       collapsedIds = taskStore.getCollapsedGroupIds();
       activeTaskId = taskStore.getActiveTaskId();
+      taskSource = taskStore.getTaskSource();
     }
     sync();
     const unsubscribe = taskStore.subscribe(sync);
     return () => unsubscribe();
   });
+
+  function startGroupDrag(e: MouseEvent, groupId: string) {
+    if (compact) return;
+    e.preventDefault();
+    e.stopPropagation();
+    draggingGroupId = groupId;
+    dropGroupIndex = -1;
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+
+    function onMouseMove(ev: MouseEvent) {
+      const groupEls = document.querySelectorAll<HTMLElement>('.group[data-group-id]');
+      let idx = 0;
+      for (const el of groupEls) {
+        if (el.dataset.groupId === 'active') continue;
+        const rect = el.getBoundingClientRect();
+        if (ev.clientY < rect.top + rect.height / 2) {
+          dropGroupIndex = idx;
+          return;
+        }
+        idx++;
+      }
+      dropGroupIndex = idx;
+    }
+
+    async function onMouseUp() {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      const fromIndex = groups.findIndex((g) => g.id === draggingGroupId);
+      if (fromIndex >= 0 && dropGroupIndex >= 0 && dropGroupIndex <= groups.length) {
+        await taskStore.reorderGroups(fromIndex, dropGroupIndex);
+      }
+      draggingGroupId = null;
+      dropGroupIndex = -1;
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
 
   const DEFAULT_GROUP_ID = "";
 
@@ -431,8 +448,11 @@
           {/if}
         </div>
       {/if}
-      {#each groups as group (group.id)}
+      {#each groups as group, groupIndex (group.id)}
         {@const groupTasks = tasksForGroup(group.id, true)}
+        {#if draggingGroupId && dropGroupIndex === groupIndex}
+          <div class="group-drop-line" aria-hidden="true"></div>
+        {/if}
         <div class="group" data-group-id={group.id}>
           {#if editingGroupId === group.id}
             <div class="group-header-edit">
@@ -455,6 +475,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="group-header"
+              class:dragging={draggingGroupId === group.id}
               role="button"
               tabindex="0"
               onclick={() => handleToggleGroup(group.id)}
@@ -464,6 +485,14 @@
               }}
               title={collapsedIds.has(group.id) ? "Развернуть" : "Свернуть"}
             >
+              {#if !compact}
+                <span
+                  class="group-drag-handle"
+                  role="presentation"
+                  title="Перетащить группу"
+                  onmousedown={(e) => startGroupDrag(e, group.id)}
+                >⋮⋮</span>
+              {/if}
               <span
                 class="group-chevron"
                 class:collapsed={collapsedIds.has(group.id)}>▸</span
@@ -535,6 +564,9 @@
             </div>
           {/if}
         </div>
+        {#if draggingGroupId && dropGroupIndex === groups.length && groupIndex === groups.length - 1}
+          <div class="group-drop-line" aria-hidden="true"></div>
+        {/if}
       {/each}
     </div>
   {:else}
@@ -548,7 +580,8 @@
   .task-list-container {
     flex: 1;
     overflow-y: auto;
-    padding: 0 1rem;
+    padding: 0 var(--content-padding-h, 1rem);
+    padding-top: 0;
     min-height: 0;
   }
 
@@ -624,18 +657,19 @@
     flex-wrap: wrap;
     gap: 0.75rem;
     padding: 0.75rem 0;
-    border-bottom: 1px solid var(--group-border, rgba(168, 85, 247, 0.2));
+    border-bottom: 1px solid var(--group-border);
     margin-bottom: 0.5rem;
+    margin-top: 0;
   }
 
   .add-group-btn {
     margin-left: auto;
     padding: 0.35rem 0.6rem;
     font-size: 0.8rem;
-    background: var(--group-bg, rgba(168, 85, 247, 0.08));
-    border: 1px solid var(--group-border, rgba(168, 85, 247, 0.2));
+    background: var(--group-bg);
+    border: 1px solid var(--group-border);
     border-radius: 6px;
-    color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+    color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
   }
@@ -676,7 +710,7 @@
     font-size: 0.85rem;
     min-width: 140px;
     max-width: 200px;
-    background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    background: var(--bg-secondary);
     border: 1px solid var(--group-border);
     border-radius: 6px;
     color: var(--text-primary);
@@ -705,7 +739,7 @@
   }
 
   .add-group-submit:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.15);
+    background: var(--group-bg);
   }
 
   .add-group-submit:disabled {
@@ -761,7 +795,7 @@
     flex: 1;
     padding: 0.4rem 0.6rem;
     font-size: 0.85rem;
-    background: var(--bg-secondary, rgba(255, 255, 255, 0.05));
+    background: var(--bg-secondary);
     border: 1px solid var(--accent);
     border-radius: 6px;
     color: var(--text-primary);
@@ -791,7 +825,7 @@
   }
 
   .emoji-btn:hover {
-    background: rgba(168, 85, 247, 0.15);
+    background: var(--group-bg);
   }
 
   .group-active .group-header {
@@ -821,7 +855,7 @@
   }
 
   .task-list {
-    padding-bottom: 1rem;
+    padding-bottom: var(--content-pg-bottom, 1rem);
   }
 
   .group {
@@ -833,7 +867,7 @@
     align-items: center;
     gap: 0.5rem;
     width: 100%;
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0;
     background: var(--group-bg);
     border: 1px solid var(--group-border);
     border-radius: 6px;
@@ -888,6 +922,39 @@
     animation: drop-pulse 0.6s ease-in-out infinite alternate;
   }
 
+  .group-drag-handle {
+    cursor: grab;
+    color: var(--text-secondary);
+    padding: 0.2rem 0.25rem;
+    margin: 0;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    user-select: none;
+    flex-shrink: 0;
+  }
+
+  .group-drag-handle:hover {
+    color: var(--accent);
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .group-drag-handle:active {
+    cursor: grabbing;
+  }
+
+  .group-header.dragging {
+    opacity: 0.7;
+  }
+
+  .group-drop-line {
+    height: 3px;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    border-radius: 2px;
+    margin: 4px 0;
+    animation: drop-pulse 0.6s ease-in-out infinite alternate;
+  }
+
   @keyframes drop-pulse {
     0% {
       opacity: 0.6;
@@ -921,7 +988,7 @@
   .task-list-container.kanban .group {
     flex: 0 0 320px;
     min-width: 320px;
-    background: var(--bg-secondary, rgba(255, 255, 255, 0.02));
+    background: var(--bg-secondary);
     border-radius: 8px;
     padding: 0.5rem;
     display: flex;

@@ -28,8 +28,11 @@ export interface SettingsData {
   brainsMdPath: string | null;
   activeTaskId?: string | null;
   collapsedGroupIds?: string[];
+  groupOrderOverride?: string[];
   theme?: ThemeId;
   debugMode?: boolean;
+  pomodoroWorkMinutes?: number;
+  pomodoroBreakMinutes?: number;
 }
 
 export interface TaskGroup {
@@ -215,8 +218,11 @@ class TaskStore {
   private groupTitles: Record<string, string> = { [DEFAULT_GROUP_ID]: DEFAULT_GROUP_TITLE };
   private activeTaskId: string | null = null;
   private collapsedGroupIds: Set<string> = new Set();
+  private groupOrderOverride: string[] | null = null;
   private theme: ThemeId = 'neon';
   private debugMode = false;
+  private pomodoroWorkMinutes = 25;
+  private pomodoroBreakMinutes = 5;
 
   // Cached arrays to avoid unnecessary re-renders
   private cachedTasks: Task[] = [];
@@ -268,11 +274,22 @@ class TaskStore {
       if (settings && Array.isArray(settings.collapsedGroupIds)) {
         this.collapsedGroupIds = new Set(settings.collapsedGroupIds);
       }
+      if (settings && Array.isArray(settings.groupOrderOverride)) {
+        this.groupOrderOverride = settings.groupOrderOverride;
+      } else {
+        this.groupOrderOverride = null;
+      }
       if (settings?.theme && VALID_THEMES.includes(settings.theme)) {
         this.theme = settings.theme;
       }
       if (settings && typeof settings.debugMode === 'boolean') {
         this.debugMode = settings.debugMode;
+      }
+      if (settings && typeof settings.pomodoroWorkMinutes === 'number' && settings.pomodoroWorkMinutes >= 1 && settings.pomodoroWorkMinutes <= 120) {
+        this.pomodoroWorkMinutes = settings.pomodoroWorkMinutes;
+      }
+      if (settings && typeof settings.pomodoroBreakMinutes === 'number' && settings.pomodoroBreakMinutes >= 1 && settings.pomodoroBreakMinutes <= 60) {
+        this.pomodoroBreakMinutes = settings.pomodoroBreakMinutes;
       }
     } catch {
       this.mdPath = null;
@@ -287,8 +304,11 @@ class TaskStore {
         brainsMdPath: this.mdPath,
         activeTaskId: this.activeTaskId,
         collapsedGroupIds: [...this.collapsedGroupIds],
+        groupOrderOverride: this.groupOrderOverride ?? undefined,
         theme: this.theme,
         debugMode: this.debugMode,
+        pomodoroWorkMinutes: this.pomodoroWorkMinutes,
+        pomodoroBreakMinutes: this.pomodoroBreakMinutes,
       };
       await this.store.set('settings', settings);
       await this.store.save();
@@ -464,10 +484,12 @@ class TaskStore {
   }
 
   private rebuildGroupCache(): void {
-    // Merge stored groupOrder with any groups derived from tasks
     const derived = this.deriveGroupOrder();
-    const seen = new Set<string>(this.groupOrder);
-    let order = [...this.groupOrder];
+    const fromSource = this.taskSource === 'md' && this.groupOrderOverride?.length
+      ? this.groupOrderOverride
+      : this.groupOrder;
+    const seen = new Set<string>(fromSource);
+    let order = [...fromSource];
     for (const id of derived) {
       if (!seen.has(id)) {
         seen.add(id);
@@ -546,6 +568,23 @@ class TaskStore {
     this.notify();
   }
 
+  getPomodoroWorkMinutes(): number {
+    return this.pomodoroWorkMinutes;
+  }
+
+  getPomodoroBreakMinutes(): number {
+    return this.pomodoroBreakMinutes;
+  }
+
+  async setPomodoroDurations(workMinutes: number, breakMinutes: number): Promise<void> {
+    const work = Math.max(1, Math.min(120, Math.round(workMinutes)));
+    const break_ = Math.max(1, Math.min(60, Math.round(breakMinutes)));
+    this.pomodoroWorkMinutes = work;
+    this.pomodoroBreakMinutes = break_;
+    await this.saveSettings();
+    this.notify();
+  }
+
   async addGroup(title: string): Promise<string> {
     const t = title.trim();
     if (!t) return DEFAULT_GROUP_ID;
@@ -571,6 +610,28 @@ class TaskStore {
     return true;
   }
 
+  /** Reorder groups: move group at fromIndex so it appears before group at toIndex. */
+  async reorderGroups(fromIndex: number, toIndex: number): Promise<void> {
+    const currentOrder = this.taskSource === 'md'
+      ? (this.groupOrderOverride ?? this.groupOrder)
+      : this.groupOrder;
+    const order = [...currentOrder];
+    if (fromIndex < 0 || fromIndex >= order.length || toIndex < 0 || toIndex > order.length) return;
+    if (fromIndex === toIndex) return;
+    const [id] = order.splice(fromIndex, 1);
+    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    order.splice(insertAt, 0, id);
+    if (this.taskSource === 'md') {
+      this.groupOrderOverride = order;
+      await this.saveSettings();
+    } else {
+      this.groupOrder = order;
+      await this.persistDebounced();
+    }
+    this.invalidateCache();
+    this.notify();
+  }
+
   async renameGroup(groupId: string, newTitle: string): Promise<void> {
     const t = newTitle.trim();
     if (!t || !groupId) return;
@@ -582,8 +643,8 @@ class TaskStore {
 
   async setGroupEmoji(groupId: string, emoji: string): Promise<void> {
     const title = this.groupTitles[groupId] ?? (groupId || DEFAULT_GROUP_TITLE);
-    // Strip existing leading emoji (if any)
-    const stripped = title.replace(/^\p{Emoji_Presentation}\s*/u, '');
+    // Убираем все ведущие иконки/эмодзи/символы, оставляем только текст названия
+    const stripped = title.replace(/^[^\p{L}\p{N}]+/u, '').trim() || (groupId || DEFAULT_GROUP_TITLE);
     this.groupTitles[groupId] = emoji ? `${emoji} ${stripped}` : stripped;
     await this.persistDebounced();
     this.invalidateCache();

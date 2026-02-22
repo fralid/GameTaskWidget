@@ -7,7 +7,9 @@
   import TaskInput from "./lib/TaskInput.svelte";
   import TaskList from "./lib/TaskList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
+  import PomodoroTimer from "./lib/PomodoroTimer.svelte";
   import { taskStore, type Task } from "./lib/store";
+  import { pomodoroStore } from "./lib/pomodoroStore";
   import * as debug from "./lib/debug";
 
   let isLocked = $state(false);
@@ -19,6 +21,8 @@
   let debugMode = $state(false);
   let debugLogs = $state<debug.DebugEntry[]>([]);
   let debugLogsKey = $state(0);
+  let pomodoroWork = $state(25);
+  let pomodoroBreak = $state(5);
   let progress = $derived(
     tasks.length === 0
       ? 0
@@ -40,8 +44,14 @@
       activeTaskId = taskStore.getActiveTaskId();
       tasks = taskStore.getTasks();
       debugMode = taskStore.getDebugMode();
+      pomodoroWork = taskStore.getPomodoroWorkMinutes();
+      pomodoroBreak = taskStore.getPomodoroBreakMinutes();
     });
     debugMode = taskStore.getDebugMode();
+    pomodoroWork = taskStore.getPomodoroWorkMinutes();
+    pomodoroBreak = taskStore.getPomodoroBreakMinutes();
+    pomodoroStore.setDurations(pomodoroWork, pomodoroBreak);
+    pomodoroStore.reset();
     const unsubDebug = debug.subscribe(() => {
       debugLogs = debug.getLogs();
       debugLogsKey += 1;
@@ -133,13 +143,18 @@
       const dpr = window.devicePixelRatio || 1;
       const strip = document.querySelector(".compact-strip");
       const rect = strip?.getBoundingClientRect();
-      let totalH = rect ? rect.height : 50;
-      totalH += 4;
-      const physWidth = Math.ceil(400 * dpr);
-      const physHeight = Math.ceil(Math.max(totalH, 40) * dpr);
-      debug.log("[compact] fitCompactWindow", { totalH, physWidth, physHeight, stripFound: !!strip });
+      let totalH = rect ? rect.height : 80;
+      totalH += 8;
+      const minCompactWidth = 520;
+      const minCompactHeight = 130;
+      const logicalW = Math.max(minCompactWidth, 400);
+      const logicalH = Math.max(minCompactHeight, Math.ceil(totalH));
+      const physWidth = Math.ceil(logicalW * dpr);
+      const physHeight = Math.ceil(logicalH * dpr);
+      debug.log("[compact] fitCompactWindow", { totalH, logicalW, logicalH, stripFound: !!strip });
       await win.setSize(new PhysicalSize(physWidth, physHeight));
-      debug.log("[compact] setSize done");
+      await win.setMinSize(new LogicalSize(logicalW, logicalH));
+      debug.log("[compact] setSize and minSize done");
     } catch (e) {
       debug.error("[compact] fitCompactWindow failed", e);
       console.error("fitCompactWindow failed:", e);
@@ -170,14 +185,19 @@
   {#if isCompact}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div class="compact-strip" role="banner" onmousedown={handleDragStart}>
-      <TaskList compact={true} />
-      <button
-        class="compact-expand-btn"
-        type="button"
-        onmousedown={(e) => e.stopPropagation()}
-        onclick={toggleCompact}
-        title="Развернуть окно">◱</button
-      >
+      <div class="compact-strip-top">
+        <TaskList compact={true} />
+        <button
+          class="compact-expand-btn"
+          type="button"
+          onmousedown={(e) => e.stopPropagation()}
+          onclick={toggleCompact}
+          title="Развернуть окно">◱</button
+        >
+      </div>
+      <div class="compact-strip-pomodoro">
+        <PomodoroTimer workMinutes={pomodoroWork} breakMinutes={pomodoroBreak} compact={true} />
+      </div>
     </div>
   {:else}
     {#if isLocked}
@@ -234,6 +254,8 @@
       </button>
     </div>
 
+    <PomodoroTimer workMinutes={pomodoroWork} breakMinutes={pomodoroBreak} />
+
     <div
       class="xp-bar"
       aria-label="Прогресс"
@@ -283,7 +305,7 @@
     height: 100vh;
     display: flex;
     flex-direction: column;
-    background: rgba(10, 10, 15, 0.72);
+    background: var(--bg-primary);
     backdrop-filter: blur(24px) saturate(140%);
     -webkit-backdrop-filter: blur(24px) saturate(140%);
     border: 1px solid var(--border-color);
@@ -297,7 +319,7 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.3rem 0.6rem;
+    padding: 0.3rem var(--content-padding-h, 1rem);
     background: var(--header-bg);
     border-bottom: 1px solid var(--header-border);
     cursor: move;
@@ -341,7 +363,7 @@
     padding: 0.35rem 1rem;
     background: var(--unlock-bg);
     border-bottom: 1px solid var(--unlock-border);
-    color: #fff;
+    color: var(--text-primary);
     font-size: 0.8rem;
     text-align: center;
     pointer-events: none;
@@ -350,7 +372,7 @@
   .unlock-hint kbd {
     display: inline-block;
     padding: 0.15rem 0.4rem;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--group-bg);
     border-radius: 4px;
     font-size: 0.8em;
   }
@@ -365,14 +387,15 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    padding-top: 0.75rem;
   }
 
   .compact-strip {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
+    flex-direction: column;
+    gap: 0;
     padding: 0.35rem 0.5rem;
-    background: rgba(10, 10, 15, 0.85);
+    background: var(--bg-primary);
     border: 1px solid var(--border-color);
     border-radius: 0;
     cursor: move;
@@ -380,11 +403,25 @@
     -webkit-user-select: none;
   }
 
-  .compact-strip :global(.task-list-container) {
+  .compact-strip-top {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .compact-strip-top :global(.task-list-container) {
     flex: 1;
     min-width: 0;
     padding: 0;
     overflow: visible;
+  }
+
+  .compact-strip-pomodoro {
+    width: 100%;
+    margin-top: 0.35rem;
+    padding-top: 0.35rem;
+    border-top: 1px solid var(--group-border);
   }
 
   .compact-expand-btn {
@@ -406,12 +443,13 @@
 
   .xp-bar {
     height: 16px;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--xp-bar-bg);
     position: relative;
     overflow: hidden;
     z-index: 10;
     display: flex;
     align-items: center;
+    padding: 0 var(--content-padding-h, 1rem);
   }
 
   .xp-fill {
@@ -431,9 +469,9 @@
     text-align: center;
     font-size: 0.65rem;
     font-weight: 600;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--text-primary);
     letter-spacing: 1px;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
   }
 
   .debug-overlay {
@@ -442,7 +480,7 @@
     left: 0;
     right: 0;
     max-height: 220px;
-    background: rgba(0, 0, 0, 0.92);
+    background: var(--bg-primary);
     border-top: 1px solid var(--border-color);
     display: flex;
     flex-direction: column;
@@ -483,7 +521,7 @@
   .debug-line {
     color: var(--text-primary);
     padding: 0.15rem 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    border-bottom: 1px solid var(--group-border);
     word-break: break-word;
   }
   .debug-line.debug-warn .debug-msg { color: #fbbf24; }

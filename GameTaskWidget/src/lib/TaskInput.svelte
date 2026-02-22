@@ -32,16 +32,16 @@
 
 <style>
   .task-input-container {
-    padding: 1rem;
+    padding: 0.75rem var(--content-padding-h, 1rem);
   }
 
   .task-input {
     width: 100%;
     padding: 0.75rem 1rem;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(168, 85, 247, 0.3);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
     border-radius: 8px;
-    color: #fff;
+    color: var(--text-primary);
     font-size: 0.95rem;
     font-family: 'Rajdhani', 'Orbitron', 'Exo 2', sans-serif;
     outline: none;
@@ -49,12 +49,12 @@
   }
 
   .task-input::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: var(--text-secondary);
   }
 
   .task-input:focus {
-    border-color: #a855f7;
-    box-shadow: 0 0 10px rgba(168, 85, 247, 0.3);
-    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    background: var(--bg-secondary);
   }
 </style>

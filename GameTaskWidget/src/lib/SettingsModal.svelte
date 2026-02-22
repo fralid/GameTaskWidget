@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invoke } from "@tauri-apps/api/core";
   import { taskStore, type ThemeId } from "./store";
+  import { pomodoroStore } from "./pomodoroStore";
 
   interface Props {
     open: boolean;
@@ -11,6 +12,8 @@
   let mdPath = $state(taskStore.getMdPath() ?? "");
   let theme = $state<ThemeId>(taskStore.getTheme());
   let debugMode = $state(taskStore.getDebugMode());
+  let pomodoroWork = $state(taskStore.getPomodoroWorkMinutes());
+  let pomodoroBreak = $state(taskStore.getPomodoroBreakMinutes());
   let error = $state("");
   let loading = $state(false);
 
@@ -26,6 +29,8 @@
       mdPath = taskStore.getMdPath() ?? "";
       theme = taskStore.getTheme();
       debugMode = taskStore.getDebugMode();
+      pomodoroWork = taskStore.getPomodoroWorkMinutes();
+      pomodoroBreak = taskStore.getPomodoroBreakMinutes();
       error = "";
     }
   });
@@ -89,6 +94,15 @@
   async function handleDebugModeChange(checked: boolean) {
     debugMode = checked;
     await taskStore.setDebugMode(checked);
+  }
+
+  async function handlePomodoroChange() {
+    const work = Math.max(1, Math.min(120, Math.round(pomodoroWork) || 25));
+    const break_ = Math.max(1, Math.min(60, Math.round(pomodoroBreak) || 5));
+    pomodoroWork = work;
+    pomodoroBreak = break_;
+    await taskStore.setPomodoroDurations(work, break_);
+    pomodoroStore.setDurations(work, break_);
   }
 </script>
 
@@ -166,6 +180,34 @@
         {#if error}
           <p class="error">{error}</p>
         {/if}
+
+        <div class="pomodoro-section">
+          <span class="label">Помидор-таймер</span>
+          <div class="pomodoro-fields">
+            <label class="pomodoro-field">
+              <span>Работа (мин)</span>
+              <input
+                type="number"
+                min="1"
+                max="120"
+                bind:value={pomodoroWork}
+                onchange={handlePomodoroChange}
+                onblur={handlePomodoroChange}
+              />
+            </label>
+            <label class="pomodoro-field">
+              <span>Перерыв (мин)</span>
+              <input
+                type="number"
+                min="1"
+                max="60"
+                bind:value={pomodoroBreak}
+                onchange={handlePomodoroChange}
+                onblur={handlePomodoroChange}
+              />
+            </label>
+          </div>
+        </div>
 
         <div class="shortcuts-section">
           <span class="label">Горячие клавиши</span>
@@ -351,7 +393,7 @@
   }
 
   .btn-primary:hover:not(:disabled) {
-    background: rgba(168, 85, 247, 0.15);
+    background: var(--group-bg);
   }
 
   .btn-secondary {
@@ -368,6 +410,42 @@
     margin: 0.75rem 0 0;
     font-size: 0.85rem;
     color: #f87171;
+  }
+
+  .pomodoro-section {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--group-border);
+  }
+
+  .pomodoro-fields {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .pomodoro-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+
+  .pomodoro-field input {
+    width: 4rem;
+    padding: 0.4rem 0.5rem;
+    background: var(--group-bg);
+    border: 1px solid var(--group-border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    font-family: inherit;
+  }
+
+  .pomodoro-field input:focus {
+    outline: none;
+    border-color: var(--accent);
   }
 
   .shortcuts-section {

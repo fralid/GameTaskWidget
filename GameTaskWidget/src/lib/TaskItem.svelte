@@ -185,7 +185,7 @@
     align-items: center;
     gap: 0.75rem;
     padding: 0.75rem 1rem;
-    background: var(--bg-secondary, rgba(255, 255, 255, 0.03));
+    background: var(--bg-secondary);
     border: 1px solid var(--group-border);
     border-radius: 6px;
     margin-bottom: 0.5rem;
@@ -226,7 +226,7 @@
   }
 
   .task-item:hover {
-    background: var(--group-bg, rgba(255, 255, 255, 0.05));
+    background: var(--group-bg);
     border-color: var(--border-color);
   }
 
@@ -244,12 +244,12 @@
     0% {
       box-shadow:
         0 0 0 1px var(--accent),
-        0 0 4px rgba(168, 85, 247, 0.2);
+        0 0 4px var(--accent);
     }
     100% {
       box-shadow:
         0 0 0 1px var(--accent),
-        0 0 16px rgba(168, 85, 247, 0.6);
+        0 0 16px var(--accent);
     }
   }
 
