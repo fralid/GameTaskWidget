@@ -10,6 +10,7 @@
   let { open: isOpen, onclose }: Props = $props();
   let mdPath = $state(taskStore.getMdPath() ?? "");
   let theme = $state<ThemeId>(taskStore.getTheme());
+  let debugMode = $state(taskStore.getDebugMode());
   let error = $state("");
   let loading = $state(false);
 
@@ -24,6 +25,7 @@
     if (isOpen) {
       mdPath = taskStore.getMdPath() ?? "";
       theme = taskStore.getTheme();
+      debugMode = taskStore.getDebugMode();
       error = "";
     }
   });
@@ -84,16 +86,9 @@
     }
   }
 
-  let devtoolsOpen = $state(false);
-
-  async function toggleDevtools() {
-    try {
-      // Tauri v2 internal_toggle_devtools
-      await invoke("plugin:webview|internal_toggle_devtools");
-      devtoolsOpen = !devtoolsOpen;
-    } catch (e) {
-      console.error("Failed to toggle devtools:", e);
-    }
+  async function handleDebugModeChange(checked: boolean) {
+    debugMode = checked;
+    await taskStore.setDebugMode(checked);
   }
 </script>
 
@@ -193,11 +188,16 @@
           </div>
         </div>
 
-        <div class="debug-section">
-          <span class="label">Отладка</span>
-          <button type="button" class="btn btn-debug" onclick={toggleDevtools}>
-            {devtoolsOpen ? "🔧 Скрыть консоль" : "🔧 Показать консоль"}
-          </button>
+        <div class="debug-mode-section">
+          <label class="debug-mode-label">
+            <input
+              type="checkbox"
+              checked={debugMode}
+              onchange={(e) => handleDebugModeChange((e.target as HTMLInputElement).checked)}
+            />
+            <span>Режим отладки</span>
+          </label>
+          <p class="debug-mode-desc">Включите, чтобы видеть журнал логов внизу экрана при тестировании.</p>
         </div>
       </div>
     </div>
@@ -376,6 +376,31 @@
     border-top: 1px solid var(--group-border);
   }
 
+  .debug-mode-section {
+    margin-top: 1.25rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--group-border);
+  }
+
+  .debug-mode-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+  }
+
+  .debug-mode-label input {
+    cursor: pointer;
+  }
+
+  .debug-mode-desc {
+    margin: 0.35rem 0 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+
   .shortcut-list {
     display: flex;
     flex-direction: column;
@@ -399,25 +424,5 @@
     font-size: 0.75rem;
     color: var(--text-primary);
     font-family: inherit;
-  }
-
-  .debug-section {
-    margin-top: 1.25rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--group-border);
-  }
-
-  .btn-debug {
-    background: transparent;
-    color: var(--text-secondary);
-    border: 1px solid var(--group-border);
-    width: 100%;
-    text-align: center;
-  }
-
-  .btn-debug:hover {
-    background: var(--group-bg);
-    color: var(--text-primary);
-    border-color: var(--accent);
   }
 </style>

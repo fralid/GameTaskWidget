@@ -8,6 +8,7 @@
   import TaskList from "./lib/TaskList.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
   import { taskStore, type Task } from "./lib/store";
+  import * as debug from "./lib/debug";
 
   let isLocked = $state(false);
   let settingsOpen = $state(false);
@@ -15,6 +16,9 @@
   let savedSize = $state<{ width: number; height: number } | null>(null);
   let activeTaskId = $state<string | null>(null);
   let tasks = $state<Task[]>([]);
+  let debugMode = $state(false);
+  let debugLogs = $state<debug.DebugEntry[]>([]);
+  let debugLogsKey = $state(0);
   let progress = $derived(
     tasks.length === 0
       ? 0
@@ -35,6 +39,12 @@
       document.documentElement.dataset.theme = taskStore.getTheme();
       activeTaskId = taskStore.getActiveTaskId();
       tasks = taskStore.getTasks();
+      debugMode = taskStore.getDebugMode();
+    });
+    debugMode = taskStore.getDebugMode();
+    const unsubDebug = debug.subscribe(() => {
+      debugLogs = debug.getLogs();
+      debugLogsKey += 1;
     });
     activeTaskId = taskStore.getActiveTaskId();
     tasks = taskStore.getTasks();
@@ -52,6 +62,7 @@
       .catch(() => {});
     return () => {
       unsubStore();
+      unsubDebug?.();
       unlisten?.();
     };
   });
@@ -76,10 +87,11 @@
   }
 
   async function toggleCompact() {
+    debug.log("[compact] toggleCompact called", { isCompact });
     try {
       const win = getCurrentWindow();
       if (isCompact) {
-        // Restore min size constraint (logical pixels)
+        debug.log("[compact] restoring full window");
         await win.setMinSize(new LogicalSize(380, 400));
         if (savedSize) {
           await win.setSize(
@@ -88,17 +100,29 @@
           savedSize = null;
         }
         isCompact = false;
+        debug.log("[compact] restored");
       } else {
         const size = await win.innerSize();
         savedSize = { width: size.width, height: size.height };
-        // Remove min size constraint for compact strip (logical pixels)
+        debug.log("[compact] saving size, entering compact", savedSize);
         await win.setMinSize(new LogicalSize(100, 30));
         isCompact = true;
-        // Wait a tick for the DOM to render compact mode
-        await new Promise((r) => setTimeout(r, 100));
+        // Wait for .compact-strip to appear (poll up to 500ms)
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 50));
+          const strip = document.querySelector(".compact-strip");
+          if (strip) {
+            debug.log("[compact] strip found after " + (i + 1) * 50 + "ms");
+            break;
+          }
+        }
+        await new Promise<void>((r) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => r()));
+        });
         await fitCompactWindow();
       }
     } catch (e) {
+      debug.error("[compact] toggleCompact failed", e);
       console.error("toggleCompact failed:", e);
     }
   }
@@ -108,13 +132,16 @@
       const win = getCurrentWindow();
       const dpr = window.devicePixelRatio || 1;
       const strip = document.querySelector(".compact-strip");
-      let totalH = strip ? strip.getBoundingClientRect().height : 50;
-      // Add border (2px) and small buffer
+      const rect = strip?.getBoundingClientRect();
+      let totalH = rect ? rect.height : 50;
       totalH += 4;
       const physWidth = Math.ceil(400 * dpr);
       const physHeight = Math.ceil(Math.max(totalH, 40) * dpr);
+      debug.log("[compact] fitCompactWindow", { totalH, physWidth, physHeight, stripFound: !!strip });
       await win.setSize(new PhysicalSize(physWidth, physHeight));
+      debug.log("[compact] setSize done");
     } catch (e) {
+      debug.error("[compact] fitCompactWindow failed", e);
       console.error("fitCompactWindow failed:", e);
     }
   }
@@ -192,7 +219,6 @@
         onmousedown={(e) => e.stopPropagation()}
         onclick={toggleCompact}
         title="Свернуть до активной задачи"
-        disabled={!activeTaskId}
       >
         ▲
       </button>
@@ -223,6 +249,31 @@
     </div>
   {/if}
   <SettingsModal open={settingsOpen} onclose={() => (settingsOpen = false)} />
+  {#if debugMode}
+    <div class="debug-overlay" role="log" aria-label="Журнал отладки">
+      <div class="debug-header">
+        <span class="debug-title">Отладка</span>
+        <button
+          type="button"
+          class="debug-clear"
+          onclick={() => { debug.clearLogs(); debugLogs = []; debugLogsKey += 1; }}
+        >
+          Очистить
+        </button>
+      </div>
+      <div class="debug-list" key={debugLogsKey}>
+        {#each debugLogs as entry, i (entry.time + String(i) + entry.msg)}
+          <div class="debug-line" class:debug-warn={entry.level === 'warn'} class:debug-error={entry.level === 'error'}>
+            <span class="debug-time">{entry.time}</span>
+            <span class="debug-msg">{entry.msg}</span>
+            {#if entry.data !== undefined && entry.data !== null}
+              <pre class="debug-data">{typeof entry.data === 'object' ? JSON.stringify(entry.data, null, 0) : String(entry.data)}</pre>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -323,7 +374,7 @@
     padding: 0.35rem 0.5rem;
     background: rgba(10, 10, 15, 0.85);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 0;
     cursor: move;
     user-select: none;
     -webkit-user-select: none;
@@ -343,7 +394,7 @@
     font-size: 1rem;
     cursor: pointer;
     padding: 0.15rem 0.4rem;
-    border-radius: 4px;
+    border-radius: 0;
     flex-shrink: 0;
     transition: all 0.2s ease;
   }
@@ -385,6 +436,68 @@
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   }
 
+  .debug-overlay {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-height: 220px;
+    background: rgba(0, 0, 0, 0.92);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    z-index: 9999;
+    font-family: ui-monospace, monospace;
+    font-size: 0.7rem;
+  }
+  .debug-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid var(--group-border);
+  }
+  .debug-title {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .debug-clear {
+    background: var(--group-bg);
+    border: 1px solid var(--group-border);
+    color: var(--text-primary);
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.7rem;
+  }
+  .debug-clear:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .debug-list {
+    overflow-y: auto;
+    padding: 0.25rem;
+    flex: 1;
+    min-height: 0;
+  }
+  .debug-line {
+    color: var(--text-primary);
+    padding: 0.15rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    word-break: break-word;
+  }
+  .debug-line.debug-warn .debug-msg { color: #fbbf24; }
+  .debug-line.debug-error .debug-msg { color: #f87171; }
+  .debug-time {
+    color: var(--text-secondary);
+    margin-right: 0.5rem;
+  }
+  .debug-data {
+    margin: 0.15rem 0 0 1rem;
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    white-space: pre-wrap;
+  }
   @media (prefers-reduced-motion: reduce) {
     * {
       animation-duration: 0.01ms !important;

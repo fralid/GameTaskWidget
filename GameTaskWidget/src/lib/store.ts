@@ -29,6 +29,7 @@ export interface SettingsData {
   activeTaskId?: string | null;
   collapsedGroupIds?: string[];
   theme?: ThemeId;
+  debugMode?: boolean;
 }
 
 export interface TaskGroup {
@@ -215,6 +216,7 @@ class TaskStore {
   private activeTaskId: string | null = null;
   private collapsedGroupIds: Set<string> = new Set();
   private theme: ThemeId = 'neon';
+  private debugMode = false;
 
   // Cached arrays to avoid unnecessary re-renders
   private cachedTasks: Task[] = [];
@@ -269,6 +271,9 @@ class TaskStore {
       if (settings?.theme && VALID_THEMES.includes(settings.theme)) {
         this.theme = settings.theme;
       }
+      if (settings && typeof settings.debugMode === 'boolean') {
+        this.debugMode = settings.debugMode;
+      }
     } catch {
       this.mdPath = null;
       this.taskSource = 'store';
@@ -283,6 +288,7 @@ class TaskStore {
         activeTaskId: this.activeTaskId,
         collapsedGroupIds: [...this.collapsedGroupIds],
         theme: this.theme,
+        debugMode: this.debugMode,
       };
       await this.store.set('settings', settings);
       await this.store.save();
@@ -526,6 +532,16 @@ class TaskStore {
 
   async setTheme(theme: ThemeId): Promise<void> {
     this.theme = theme;
+    await this.saveSettings();
+    this.notify();
+  }
+
+  getDebugMode(): boolean {
+    return this.debugMode;
+  }
+
+  async setDebugMode(value: boolean): Promise<void> {
+    this.debugMode = value;
     await this.saveSettings();
     this.notify();
   }

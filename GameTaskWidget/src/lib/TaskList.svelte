@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
-  import { PhysicalSize } from "@tauri-apps/api/dpi";
+  import { PhysicalSize, LogicalSize } from "@tauri-apps/api/dpi";
   import TaskItem from "./TaskItem.svelte";
   import { taskStore, type Task, type TaskGroup } from "./store";
+  import * as debug from "./debug";
 
   interface Props {
     compact?: boolean;
@@ -61,20 +62,24 @@
   let savedListSize: { width: number; height: number } | null = null;
 
   async function toggleKanban() {
+    const nextKanban = !isKanban;
+    debug.log("[kanban] toggleKanban", { from: isKanban, to: nextKanban });
+    isKanban = nextKanban;
     try {
       const win = getCurrentWindow();
       const dpr = window.devicePixelRatio || 1;
-      if (!isKanban) {
-        // Switching to kanban — save current size, then widen
+      if (nextKanban) {
         const cur = await win.innerSize();
         savedListSize = { width: cur.width, height: cur.height };
-        await win.setMinSize(new PhysicalSize(600, 400));
+        debug.log("[kanban] switching to kanban", { savedSize: savedListSize });
+        await win.setMinSize(new LogicalSize(600, 400));
         await win.setSize(
           new PhysicalSize(Math.ceil(1200 * dpr), Math.ceil(700 * dpr)),
         );
+        debug.log("[kanban] setSize done (1200x700 logical)");
       } else {
-        // Switching back to list
-        await win.setMinSize(new PhysicalSize(380, 400));
+        debug.log("[kanban] switching to list", { savedListSize });
+        await win.setMinSize(new LogicalSize(380, 400));
         if (savedListSize) {
           await win.setSize(
             new PhysicalSize(savedListSize.width, savedListSize.height),
@@ -85,11 +90,12 @@
             new PhysicalSize(Math.ceil(480 * dpr), Math.ceil(600 * dpr)),
           );
         }
+        debug.log("[kanban] setSize done (list)");
       }
-      isKanban = !isKanban;
     } catch (e) {
+      debug.error("[kanban] resize failed, reverting", e);
+      isKanban = !nextKanban;
       console.error("Kanban toggle resize failed:", e);
-      isKanban = !isKanban;
     }
   }
 
@@ -543,6 +549,17 @@
     flex: 1;
     overflow-y: auto;
     padding: 0 1rem;
+    min-height: 0;
+  }
+
+  .task-list-container.kanban {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0;
+  }
+
+  .task-list-container.kanban .task-list-header {
+    flex-shrink: 0;
   }
 
   /* Compact mode styles */
@@ -571,7 +588,7 @@
     width: 16px;
     height: 16px;
     border: 2px solid var(--border-color);
-    border-radius: 3px;
+    border-radius: 0;
     background: transparent;
     transition: all 0.2s ease;
   }
@@ -892,11 +909,13 @@
   /* Kanban Mode Styles */
   .task-list-container.kanban .task-list {
     display: flex;
-    overflow-x: scroll;
+    overflow-x: auto;
+    overflow-y: hidden;
     gap: 1rem;
     align-items: flex-start;
-    padding-bottom: 1rem;
-    height: 100%;
+    padding-bottom: 0.5rem;
+    flex: 1;
+    min-height: 0;
   }
 
   .task-list-container.kanban .group {
